@@ -6,6 +6,7 @@ function write_zip_type(wb/*:Workbook*/, opts/*:?WriteOpts*/) {
 	switch(o.type) {
 		case "base64": oopts.type = "base64"; break;
 		case "binary": oopts.type = "string"; break;
+		case "arraybuffer": oopts.type = "arraybuffer"; break;
 		case "buffer":
 		case "file": oopts.type = "nodebuffer"; break;
 		default: throw new Error("Unrecognized type " + o.type);
