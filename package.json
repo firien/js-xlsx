@@ -15,7 +15,8 @@
 		"cfb":"~0.11.0",
 		"crc-32":"",
 		"adler-32":"",
-		"commander":""
+		"commander":"",
+		"jszip":"<=3"
 	},
 	"devDependencies": {
 		"mocha":"",
