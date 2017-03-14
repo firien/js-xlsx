@@ -16,7 +16,7 @@
 		"crc-32":"",
 		"adler-32":"",
 		"commander":"",
-		"jszip":"<=3"
+		"jszip":"2.x"
 	},
 	"devDependencies": {
 		"mocha":"",
