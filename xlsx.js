@@ -12448,6 +12448,8 @@ function write_zip_type(wb, opts) {
 	switch(o.type) {
 		case "base64": oopts.type = "base64"; break;
 		case "binary": oopts.type = "string"; break;
+		case "arraybuffer": oopts.type = "arraybuffer"; break;
+		case "blob": oopts.type = "blob"; break;
 		case "buffer":
 		case "file": oopts.type = "nodebuffer"; break;
 		default: throw new Error("Unrecognized type " + o.type);
