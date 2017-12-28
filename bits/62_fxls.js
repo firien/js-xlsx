@@ -1,7 +1,7 @@
 /* --- formula references point to MS-XLS --- */
 /* Small helpers */
 function parseread(l) { return function(blob, length) { blob.l+=l; return; }; }
-function parseread1(blob, length) { blob.l+=1; return; }
+function parseread1(blob) { blob.l+=1; return; }
 
 /* Rgce Helpers */
 
@@ -25,7 +25,7 @@ function parse_RgceArea(blob, length, opts) {
 	return { s:{r:r, c:c[0], cRel:c[1], rRel:c[2]}, e:{r:R, c:C[0], cRel:C[1], rRel:C[2]} };
 }
 /* BIFF 2-5 encodes flags in the row field */
-function parse_RgceArea_BIFF2(blob, length, opts) {
+function parse_RgceArea_BIFF2(blob/*::, length, opts*/) {
 	var r=parse_ColRelU(blob, 2), R=parse_ColRelU(blob, 2);
 	var c=blob.read_shift(1);
 	var C=blob.read_shift(1);
@@ -33,8 +33,8 @@ function parse_RgceArea_BIFF2(blob, length, opts) {
 }
 
 /* 2.5.198.105 TODO */
-function parse_RgceAreaRel(blob, length) {
-	var r=blob.read_shift(2), R=blob.read_shift(2);
+function parse_RgceAreaRel(blob, length/*::, opts*/) {
+	var r=blob.read_shift(length == 12 ? 4 : 2), R=blob.read_shift(length == 12 ? 4 : 2);
 	var c=parse_ColRelU(blob, 2);
 	var C=parse_ColRelU(blob, 2);
 	return { s:{r:r, c:c[0], cRel:c[1], rRel:c[2]}, e:{r:R, c:C[0], cRel:C[1], rRel:C[2]} };
@@ -53,6 +53,13 @@ function parse_RgceLoc_BIFF2(blob, length, opts) {
 	return {r:r[0], c:c, cRel:r[1], rRel:r[2]};
 }
 
+/* 2.5.198.107 , 2.5.47 */
+function parse_RgceElfLoc(blob, length, opts) {
+	var r = blob.read_shift(2);
+	var c = blob.read_shift(2);
+	return {r:r, c:c & 0xFF, fQuoted:!!(c & 0x4000), cRel:c>>15, rRel:c>>15 };
+}
+
 /* [MS-XLS] 2.5.198.111 TODO */
 /* [MS-XLSB] 2.5.97.92 TODO */
 function parse_RgceLocRel(blob, length, opts) {
@@ -66,7 +73,7 @@ function parse_RgceLocRel(blob, length, opts) {
 	if(cRel == 1) while(cl > 0x1FFF) cl = cl - 0x4000;
 	return {r:r,c:cl,cRel:cRel,rRel:rRel};
 }
-function parse_RgceLocRel_BIFF2(blob, length) {
+function parse_RgceLocRel_BIFF2(blob, length/*::, opts*/) {
 	var rl = blob.read_shift(2);
 	var c = blob.read_shift(1);
 	var rRel = (rl & 0x8000) >> 15, cRel = (rl & 0x4000) >> 14;
@@ -100,9 +107,9 @@ function parse_PtgArea3d(blob, length, opts) {
 }
 
 /* 2.5.198.29 */
-function parse_PtgAreaErr(blob, length) {
+function parse_PtgAreaErr(blob, length, opts) {
 	var type = (blob[blob.l++] & 0x60) >> 5;
-	blob.l += 8;
+	blob.l += opts && opts.biff > 8 ? 12 : 8;
 	return [type];
 }
 /* 2.5.198.30 */
@@ -119,9 +126,9 @@ function parse_PtgAreaErr3d(blob, length, opts) {
 }
 
 /* 2.5.198.31 */
-function parse_PtgAreaN(blob, length) {
+function parse_PtgAreaN(blob, length, opts) {
 	var type = (blob[blob.l++] & 0x60) >> 5;
-	var area = parse_RgceAreaRel(blob, 8);
+	var area = parse_RgceAreaRel(blob, opts && opts.biff > 8 ? 12 : 8, opts);
 	return [type, area];
 }
 
@@ -327,7 +334,8 @@ function parse_PtgExtraArray(blob, length, opts) {
 		rows = 1 + blob.read_shift(2); //DRw
 	}
 	if(opts.biff >= 2 && opts.biff < 8) { --rows; if(--cols == 0) cols = 0x100; }
-	for(var i = 0, o=[]; i != rows && (o[i] = []); ++i)
+	// $FlowIgnore
+	for(var i = 0, o/*:Array<Array<any> >*/=[]; i != rows && (o[i] = []); ++i)
 		for(var j = 0; j != cols; ++j) o[i][j] = parse_SerAr(blob, opts.biff);
 	return o;
 }
@@ -386,6 +394,19 @@ function parse_PtgRefErr(blob, length, opts) {
 	return [type];
 }
 
+/* 2.5.198.87 */
+function parse_PtgRefErr3d(blob, length, opts) {
+	var type = (blob[blob.l++] & 0x60) >> 5;
+	var ixti = blob.read_shift(2);
+	var w = 4;
+	if(opts) switch(opts.biff) {
+		case 5: throw new Error("PtgRefErr3d -- 5"); // TODO: find test case
+		case 12: w = 6; break;
+	}
+	blob.l += w;
+	return [type, ixti];
+}
+
 /* 2.5.198.26 */
 var parse_PtgAdd = parseread1;
 /* 2.5.198.45 */
@@ -429,10 +450,53 @@ var parse_PtgUplus = parseread1;
 var parse_PtgMemErr = parsenoop;
 /* 2.5.198.73 */
 var parse_PtgMemNoMem = parsenoop;
-/* 2.5.198.87 */
-var parse_PtgRefErr3d = parsenoop;
 /* 2.5.198.92 */
 var parse_PtgTbl = parsenoop;
+
+function parse_PtgElfLoc(blob, length, opts) {
+	blob.l += 2;
+	return [parse_RgceElfLoc(blob, 4, opts)];
+}
+function parse_PtgElfNoop(blob, length, opts) {
+	blob.l += 6;
+	return [];
+}
+/* 2.5.198.46 */
+var parse_PtgElfCol = parse_PtgElfLoc;
+/* 2.5.198.47 */
+var parse_PtgElfColS = parse_PtgElfNoop;
+/* 2.5.198.48 */
+var parse_PtgElfColSV = parse_PtgElfNoop;
+/* 2.5.198.49 */
+var parse_PtgElfColV = parse_PtgElfLoc;
+/* 2.5.198.50 */
+function parse_PtgElfLel(blob, length, opts) {
+	blob.l += 2;
+	return [parseuint16(blob), blob.read_shift(2) & 0x01];
+}
+/* 2.5.198.51 */
+var parse_PtgElfRadical = parse_PtgElfLoc;
+/* 2.5.198.52 */
+var parse_PtgElfRadicalLel = parse_PtgElfLel;
+/* 2.5.198.53 */
+var parse_PtgElfRadicalS = parse_PtgElfNoop;
+/* 2.5.198.54 */
+var parse_PtgElfRw = parse_PtgElfLoc;
+/* 2.5.198.55 */
+var parse_PtgElfRwV = parse_PtgElfLoc;
+
+/* [MS-XLSB] 2.5.97.52 */
+function parse_PtgList(blob, length, opts) {
+	blob.l += 2;
+	var ixti = blob.read_shift(2);
+	blob.l += 10;
+	return {};
+}
+/* 2.5.198.91 */
+function parse_PtgSxName(blob, length, opts) {
+	blob.l += 2;
+	return [blob.read_shift(4)];
+}
 
 /* 2.5.198.25 */
 var PtgTypes = {
@@ -509,8 +573,19 @@ var PtgDupes = {
 (function(){for(var y in PtgDupes) PtgTypes[y] = PtgTypes[PtgDupes[y]];})();
 
 var Ptg18 = {
-//	/*::[*/0x19/*::]*/: { n:'PtgList', f:parse_PtgList }, // TODO
-//	/*::[*/0x1D/*::]*/: { n:'PtgSxName', f:parse_PtgSxName }, // TODO
+	/*::[*/0x01/*::]*/: { n:'PtgElfLel', f:parse_PtgElfLel },
+	/*::[*/0x02/*::]*/: { n:'PtgElfRw', f:parse_PtgElfRw },
+	/*::[*/0x03/*::]*/: { n:'PtgElfCol', f:parse_PtgElfCol },
+	/*::[*/0x06/*::]*/: { n:'PtgElfRwV', f:parse_PtgElfRwV },
+	/*::[*/0x07/*::]*/: { n:'PtgElfColV', f:parse_PtgElfColV },
+	/*::[*/0x0A/*::]*/: { n:'PtgElfRadical', f:parse_PtgElfRadical },
+	/*::[*/0x0B/*::]*/: { n:'PtgElfRadicalS', f:parse_PtgElfRadicalS },
+	/*::[*/0x0D/*::]*/: { n:'PtgElfColS', f:parse_PtgElfColS },
+	/*::[*/0x0F/*::]*/: { n:'PtgElfColSV', f:parse_PtgElfColSV },
+	/*::[*/0x10/*::]*/: { n:'PtgElfRadicalLel', f:parse_PtgElfRadicalLel },
+	/*::[*/0x19/*::]*/: { n:'PtgList', f:parse_PtgList },
+	/*::[*/0x1D/*::]*/: { n:'PtgSxName', f:parse_PtgSxName },
+	/*::[*/0xFF/*::]*/: {}
 };
 var Ptg19 = {
 	/*::[*/0x01/*::]*/: { n:'PtgAttrSemi', f:parse_PtgAttrSemi },
@@ -524,39 +599,11 @@ var Ptg19 = {
 	/*::[*/0x80/*::]*/: { n:'PtgAttrIfError', f:parse_PtgAttrIfError },
 	/*::[*/0xFF/*::]*/: {}
 };
-
-/* 2.4.127 TODO */
-function parse_Formula(blob, length, opts) {
-	var end = blob.l + length;
-	var cell = parse_XLSCell(blob, 6);
-	if(opts.biff == 2) ++blob.l;
-	var val = parse_FormulaValue(blob,8);
-	var flags = blob.read_shift(1);
-	if(opts.biff != 2) {
-		blob.read_shift(1);
-		if(opts.biff >= 5) {
-			var chn = blob.read_shift(4);
-		}
-	}
-	var cbf = parse_XLSCellParsedFormula(blob, end - blob.l, opts);
-	return {cell:cell, val:val[0], formula:cbf, shared: (flags >> 3) & 1, tt:val[1]};
-}
-
-/* 2.5.133 TODO: how to emit empty strings? */
-function parse_FormulaValue(blob) {
-	var b;
-	if(__readUInt16LE(blob,blob.l + 6) !== 0xFFFF) return [parse_Xnum(blob),'n'];
-	switch(blob[blob.l]) {
-		case 0x00: blob.l += 8; return ["String", 's'];
-		case 0x01: b = blob[blob.l+2] === 0x1; blob.l += 8; return [b,'b'];
-		case 0x02: b = blob[blob.l+2]; blob.l += 8; return [b,'e'];
-		case 0x03: blob.l += 8; return ["",'s'];
-	}
-	return [];
-}
+Ptg19[0x21] = Ptg19[0x20];
 
 /* 2.5.198.103 */
 function parse_RgbExtra(blob, length, rgce, opts) {
+	if(opts.biff < 8) return parsenoop(blob, length);
 	var target = blob.l + length;
 	var o = [];
 	for(var i = 0; i !== rgce.length; ++i) {
@@ -574,6 +621,11 @@ function parse_RgbExtra(blob, length, rgce, opts) {
 					rgce[i][1][1] = blob.read_shift(4);
 					o.push(rgce[i][1]);
 				} break;
+			case 'PtgList': /* TODO: PtgList -> PtgExtraList */
+			case 'PtgElfRadicalS': /* TODO: PtgElfRadicalS -> PtgExtraElf */
+			case 'PtgElfColS': /* TODO: PtgElfColS -> PtgExtraElf */
+			case 'PtgElfColSV': /* TODO: PtgElfColSV -> PtgExtraElf */
+				throw "Unsupported " + rgce[i][0];
 			default: break;
 		}
 	}
@@ -584,47 +636,7 @@ function parse_RgbExtra(blob, length, rgce, opts) {
 	return o;
 }
 
-/* 2.5.198.21 */
-function parse_NameParsedFormula(blob, length, opts, cce) {
-	var target = blob.l + length;
-	var rgce = parse_Rgce(blob, cce, opts);
-	var rgcb;
-	if(target !== blob.l) rgcb = parse_RgbExtra(blob, target - blob.l, rgce, opts);
-	return [rgce, rgcb];
-}
-
-/* 2.5.198.3 TODO */
-function parse_XLSCellParsedFormula(blob, length, opts) {
-	var target = blob.l + length, len = opts.biff == 2 ? 1 : 2;
-	var rgcb, cce = blob.read_shift(len); // length of rgce
-	if(cce == 0xFFFF) return [[],parsenoop(blob, length-2)];
-	var rgce = parse_Rgce(blob, cce, opts);
-	if(length !== cce + len) rgcb = parse_RgbExtra(blob, length - cce - len, rgce, opts);
-	return [rgce, rgcb];
-}
-
-/* 2.5.198.118 TODO */
-function parse_SharedParsedFormula(blob, length, opts) {
-	var target = blob.l + length;
-	var rgcb, cce = blob.read_shift(2); // length of rgce
-	var rgce = parse_Rgce(blob, cce, opts);
-	if(cce == 0xFFFF) return [[],parsenoop(blob, length-2)];
-	if(length !== cce + 2) rgcb = parse_RgbExtra(blob, target - cce - 2, rgce, opts);
-	return [rgce, rgcb];
-}
-
-/* 2.5.198.1 TODO */
-function parse_ArrayParsedFormula(blob, length, opts, ref) {
-	var target = blob.l + length, len = opts.biff == 2 ? 1 : 2;
-	var rgcb, cce = blob.read_shift(len); // length of rgce
-	if(cce == 0xFFFF) return [[],parsenoop(blob, length-2)];
-	var rgce = parse_Rgce(blob, cce, opts);
-	if(length !== cce + len) rgcb = parse_RgbExtra(blob, length - cce - len, rgce, opts);
-	return [rgce, rgcb];
-}
-
 /* 2.5.198.104 */
-var gcnt = 0;
 function parse_Rgce(blob, length, opts) {
 	var target = blob.l + length;
 	var R, id, ptgs = [];
@@ -636,13 +648,14 @@ function parse_Rgce(blob, length, opts) {
 			id = blob[blob.l + 1];
 			R = (id === 0x18 ? Ptg18 : Ptg19)[id];
 		}
-		if(!R || !R.f) { ptgs.push(parsenoop(blob, length)); }
+		if(!R || !R.f) { /*ptgs.push*/(parsenoop(blob, length)); }
+		// $FlowIgnore
 		else { ptgs.push([R.n, R.f(blob, length, opts)]); }
 	}
 	return ptgs;
 }
 
-function stringify_array(f) {
+function stringify_array(f/*:Array<Array<any>>*/)/*:string*/ {
 	var o = [];
 	for(var i = 0; i < f.length; ++i) {
 		var x = f[i], r = [];
@@ -650,7 +663,9 @@ function stringify_array(f) {
 			var y = x[j];
 			if(y) switch(y[0]) {
 				// TODO: handle embedded quotes
-				case 0x02: r.push('"' + y[1].replace(/"/g,'""') + '"'); break;
+				case 0x02:
+					/*:: if(typeof y[1] != 'string') throw "unreachable"; */
+					r.push('"' + y[1].replace(/"/g,'""') + '"'); break;
 				default: r.push(y[1]);
 			} else r.push("");
 		}
@@ -675,25 +690,63 @@ var PtgBinOp = {
 	PtgPower: "^",
 	PtgSub: "-"
 };
-function stringify_formula(formula, range, cell, supbooks, opts) {
+function formula_quote_sheet_name(sname/*:string*/)/*:string*/ {
+	if(!sname) throw new Error("empty sheet name");
+	if(sname.indexOf(" ") > -1) return "'" + sname + "'";
+	return sname;
+}
+function get_ixti_raw(supbooks, ixti/*:number*/, opts)/*:string*/ {
+	if(!supbooks) return "SH33TJSERR0";
+	if(!supbooks.XTI) return "SH33TJSERR6";
+	var XTI = supbooks.XTI[ixti];
+	if(opts.biff > 8 && !supbooks.XTI[ixti]) return supbooks.SheetNames[ixti];
+	if(opts.biff < 8) {
+		if(ixti > 10000) ixti-= 65536;
+		if(ixti < 0) ixti = -ixti;
+		return ixti == 0 ? "" : supbooks.XTI[ixti - 1];
+	}
+	if(!XTI) return "SH33TJSERR1";
+	var o = "";
+	if(opts.biff > 8) switch(supbooks[XTI[0]][0]) {
+		case 0x0165: /* 'BrtSupSelf' */
+			o = XTI[1] == -1 ? "#REF" : supbooks.SheetNames[XTI[1]];
+			return XTI[1] == XTI[2] ? o : o + ":" + supbooks.SheetNames[XTI[2]];
+		case 0x0166: /* 'BrtSupSame' */
+			if(opts.SID != null) return supbooks.SheetNames[opts.SID];
+			return "SH33TJSERR" + supbooks[XTI[0]][0];
+		case 0x0163: /* 'BrtSupBookSrc' */
+			/* falls through */
+		default: return "SH33TJSERR" + supbooks[XTI[0]][0];
+	}
+	switch(supbooks[XTI[0]][0][0]) {
+		case 0x0401:
+			o = XTI[1] == -1 ? "#REF" : (supbooks.SheetNames[XTI[1]] || "SH33TJSERR3");
+			return XTI[1] == XTI[2] ? o : o + ":" + supbooks.SheetNames[XTI[2]];
+		case 0x3A01: return "SH33TJSERR8";
+		default:
+			if(!supbooks[XTI[0]][0][3]) return "SH33TJSERR2";
+			o = XTI[1] == -1 ? "#REF" : (supbooks[XTI[0]][0][3][XTI[1]] || "SH33TJSERR4");
+			return XTI[1] == XTI[2] ? o : o + ":" + supbooks[XTI[0]][0][3][XTI[2]];
+	}
+}
+function get_ixti(supbooks, ixti/*:number*/, opts)/*:string*/ {
+	return formula_quote_sheet_name(get_ixti_raw(supbooks, ixti, opts));
+}
+function stringify_formula(formula/*Array<any>*/, range, cell/*:any*/, supbooks, opts)/*:string*/ {
 	var _range = /*range != null ? range :*/ {s:{c:0, r:0},e:{c:0, r:0}};
-	var stack = [], e1, e2, type, c, ixti, nameidx, r, sname="";
+	var stack/*:Array<string>*/ = [], e1, e2, type, c/*:CellAddress*/, ixti=0, nameidx=0, r, sname="";
 	if(!formula[0] || !formula[0][0]) return "";
 	var last_sp = -1, sp = "";
-	//console.log("--",cell,formula[0])
 	for(var ff = 0, fflen = formula[0].length; ff < fflen; ++ff) {
 		var f = formula[0][ff];
-		//console.log("++",f, stack)
 		switch(f[0]) {
-		/* 2.2.2.1 Unary Operator Tokens */
-			/* 2.5.198.93 */
-			case 'PtgUminus': stack.push("-" + stack.pop()); break;
-			/* 2.5.198.95 */
-			case 'PtgUplus': stack.push("+" + stack.pop()); break;
-			/* 2.5.198.81 */
-			case 'PtgPercent': stack.push(stack.pop() + "%"); break;
+			case 'PtgUminus': /* 2.5.198.93 */
+				stack.push("-" + stack.pop()); break;
+			case 'PtgUplus': /* 2.5.198.95 */
+				stack.push("+" + stack.pop()); break;
+			case 'PtgPercent': /* 2.5.198.81 */
+				stack.push(stack.pop() + "%"); break;
 
-		/* 2.2.2.1 Binary Value Operator Token */
 			case 'PtgAdd':    /* 2.5.198.26 */
 			case 'PtgConcat': /* 2.5.198.43 */
 			case 'PtgDiv':    /* 2.5.198.45 */
@@ -709,11 +762,16 @@ function stringify_formula(formula, range, cell, supbooks, opts) {
 				e1 = stack.pop(); e2 = stack.pop();
 				if(last_sp >= 0) {
 					switch(formula[0][last_sp][1][0]) {
-						case 0: sp = fill(" ", formula[0][last_sp][1][1]); break;
-						case 1: sp = fill("\r", formula[0][last_sp][1][1]); break;
+						case 0:
+							// $FlowIgnore
+							sp = fill(" ", formula[0][last_sp][1][1]); break;
+						case 1:
+							// $FlowIgnore
+							sp = fill("\r", formula[0][last_sp][1][1]); break;
 						default:
 							sp = "";
-							if(opts.WTF) throw new Error("Unexpected PtgSpace type " + formula[0][last_sp][1][0]);
+							// $FlowIgnore
+							if(opts.WTF) throw new Error("Unexpected PtgAttrSpaceType " + formula[0][last_sp][1][0]);
 					}
 					e2 = e2 + sp;
 					last_sp = -1;
@@ -721,55 +779,48 @@ function stringify_formula(formula, range, cell, supbooks, opts) {
 				stack.push(e2+PtgBinOp[f[0]]+e1);
 				break;
 
-		/* 2.2.2.1 Binary Reference Operator Token */
-			/* 2.5.198.67 */
-			case 'PtgIsect':
+			case 'PtgIsect': /* 2.5.198.67 */
 				e1 = stack.pop(); e2 = stack.pop();
 				stack.push(e2+" "+e1);
 				break;
-			case 'PtgUnion':
+			case 'PtgUnion': /* 2.5.198.94 */
 				e1 = stack.pop(); e2 = stack.pop();
 				stack.push(e2+","+e1);
 				break;
-			case 'PtgRange':
+			case 'PtgRange': /* 2.5.198.83 */
 				e1 = stack.pop(); e2 = stack.pop();
 				stack.push(e2+":"+e1);
 				break;
 
-		/* 2.2.2.3 Control Tokens "can be ignored" */
-			/* 2.5.198.34 */
-			case 'PtgAttrChoose': break;
-			/* 2.5.198.35 */
-			case 'PtgAttrGoto': break;
-			/* 2.5.198.36 */
-			case 'PtgAttrIf': break;
-			/* [MS-XLSB] 2.5.97.28 */
-			case 'PtgAttrIfError': break;
+			case 'PtgAttrChoose': /* 2.5.198.34 */
+				break;
+			case 'PtgAttrGoto': /* 2.5.198.35 */
+				break;
+			case 'PtgAttrIf': /* 2.5.198.36 */
+				break;
+			case 'PtgAttrIfError': /* [MS-XLSB] 2.5.97.28 */
+				break;
 
 
-			/* 2.5.198.84 */
-			case 'PtgRef':
-				type = f[1][0]; c = shift_cell_xls(f[1][1], _range, opts);
+			case 'PtgRef': /* 2.5.198.84 */
+				type = f[1][0]; c = shift_cell_xls((f[1][1]/*:any*/), _range, opts);
 				stack.push(encode_cell_xls(c));
 				break;
-			/* 2.5.198.88 */
-			case 'PtgRefN':
-				type = f[1][0]; c = shift_cell_xls(f[1][1], cell, opts);
+			case 'PtgRefN': /* 2.5.198.88 */
+				type = f[1][0]; c = cell ? shift_cell_xls((f[1][1]/*:any*/), cell, opts) : (f[1][1]/*:any*/);
 				stack.push(encode_cell_xls(c));
 				break;
-			case 'PtgRef3d': // TODO: lots of stuff
-				type = f[1][0]; ixti = f[1][1]; c = shift_cell_xls(f[1][2], _range, opts);
-				sname = (supbooks && supbooks[1] ? supbooks[1][ixti+1] : "**MISSING**");
-				stack.push(sname + "!" + encode_cell(c));
+			case 'PtgRef3d': /* 2.5.198.85 */
+				type = f[1][0]; ixti = /*::Number(*/f[1][1]/*::)*/; c = shift_cell_xls((f[1][2]/*:any*/), _range, opts);
+				sname = get_ixti(supbooks, ixti, opts);
+				var w = sname; /* IE9 fails on defined names */
+				stack.push(sname + "!" + encode_cell_xls(c));
 				break;
 
-		/* Function Call */
-			/* 2.5.198.62 */
-			case 'PtgFunc':
-			/* 2.5.198.63 */
-			case 'PtgFuncVar':
+			case 'PtgFunc': /* 2.5.198.62 */
+			case 'PtgFuncVar': /* 2.5.198.63 */
 				/* f[1] = [argc, func, type] */
-				var argc = f[1][0], func = f[1][1];
+				var argc/*:number*/ = (f[1][0]/*:any*/), func/*:string*/ = (f[1][1]/*:any*/);
 				if(!argc) argc = 0;
 				var args = argc == 0 ? [] : stack.slice(-argc);
 				stack.length -= argc;
@@ -777,89 +828,102 @@ function stringify_formula(formula, range, cell, supbooks, opts) {
 				stack.push(func + "(" + args.join(",") + ")");
 				break;
 
-			/* 2.5.198.42 */
-			case 'PtgBool': stack.push(f[1] ? "TRUE" : "FALSE"); break;
-			/* 2.5.198.66 */
-			case 'PtgInt': stack.push(f[1]); break;
-			/* 2.5.198.79 TODO: precision? */
-			case 'PtgNum': stack.push(String(f[1])); break;
-			/* 2.5.198.89 */
-			case 'PtgStr': stack.push('"' + f[1] + '"'); break;
-			/* 2.5.198.57 */
-			case 'PtgErr': stack.push(f[1]); break;
-			/* 2.5.198.27 TODO: fixed points */
-			case 'PtgArea':
-				type = f[1][0]; r = shift_range_xls(f[1][1], _range);
-				stack.push(encode_range_xls(r));
+			case 'PtgBool': /* 2.5.198.42 */
+				stack.push(f[1] ? "TRUE" : "FALSE"); break;
+			case 'PtgInt': /* 2.5.198.66 */
+				stack.push(/*::String(*/f[1]/*::)*/); break;
+			case 'PtgNum': /* 2.5.198.79 TODO: precision? */
+				stack.push(String(f[1])); break;
+			case 'PtgStr': /* 2.5.198.89 */
+				// $FlowIgnore
+				stack.push('"' + f[1] + '"'); break;
+			case 'PtgErr': /* 2.5.198.57 */
+				stack.push(/*::String(*/f[1]/*::)*/); break;
+			case 'PtgAreaN': /* 2.5.198.31 TODO */
+				type = f[1][0]; r = shift_range_xls(f[1][1], _range, opts);
+				stack.push(encode_range_xls((r/*:any*/), opts));
 				break;
-			/* 2.5.198.28 */
-			case 'PtgArea3d': // TODO: lots of stuff
-				type = f[1][0]; ixti = f[1][1]; r = f[1][2];
-				sname = (supbooks && supbooks[1] ? supbooks[1][ixti+1] : "**MISSING**");
-				stack.push(sname + "!" + encode_range(r));
+			case 'PtgArea': /* 2.5.198.27 TODO: fixed points */
+				type = f[1][0]; r = shift_range_xls(f[1][1], _range, opts);
+				stack.push(encode_range_xls((r/*:any*/), opts));
 				break;
-			/* 2.5.198.41 */
-			case 'PtgAttrSum':
+			case 'PtgArea3d': /* 2.5.198.28 TODO */
+				type = f[1][0]; ixti = /*::Number(*/f[1][1]/*::)*/; r = f[1][2];
+				sname = get_ixti(supbooks, ixti, opts);
+				stack.push(sname + "!" + encode_range_xls((r/*:any*/), opts));
+				break;
+			case 'PtgAttrSum': /* 2.5.198.41 */
 				stack.push("SUM(" + stack.pop() + ")");
 				break;
 
-		/* Expression Prefixes */
-			/* 2.5.198.37 */
-			case 'PtgAttrSemi': break;
+			case 'PtgAttrSemi': /* 2.5.198.37 */
+				break;
 
-			/* 2.5.97.60 TODO: do something different for revisions */
-			case 'PtgName':
+			case 'PtgName': /* 2.5.97.60 TODO: revisions */
 				/* f[1] = type, 0, nameindex */
-				nameidx = f[1][2];
-				var lbl = supbooks[0][nameidx];
-				var name = lbl ? lbl.Name : "**MISSING**" + nameidx;
+				nameidx = (f[1][2]/*:any*/);
+				var lbl = (supbooks.names||[])[nameidx-1] || (supbooks[0]||[])[nameidx];
+				var name = lbl ? lbl.Name : "SH33TJSERR7" + String(nameidx);
 				if(name in XLSXFutureFunctions) name = XLSXFutureFunctions[name];
 				stack.push(name);
 				break;
 
-			/* 2.5.97.61 TODO: do something different for revisions */
-			case 'PtgNameX':
+			case 'PtgNameX': /* 2.5.97.61 TODO: revisions */
 				/* f[1] = type, ixti, nameindex */
-				var bookidx = f[1][1]; nameidx = f[1][2]; var externbook;
+				var bookidx/*:number*/ = (f[1][1]/*:any*/); nameidx = (f[1][2]/*:any*/); var externbook;
 				/* TODO: Properly handle missing values */
-				//console.log(bookidx, supbooks);
-				if(opts.biff == 5) {
+				if(opts.biff <= 5) {
 					if(bookidx < 0) bookidx = -bookidx;
 					if(supbooks[bookidx]) externbook = supbooks[bookidx][nameidx];
 				} else {
-					if(supbooks[bookidx+1]) externbook = supbooks[bookidx+1][nameidx];
-					else if(supbooks[bookidx-1]) externbook = supbooks[bookidx-1][nameidx];
+					var o = "";
+					if(((supbooks[bookidx]||[])[0]||[])[0] == 0x3A01){/* empty */}
+					else if(((supbooks[bookidx]||[])[0]||[])[0] == 0x0401){
+						if(supbooks[bookidx][nameidx] && supbooks[bookidx][nameidx].itab > 0) {
+							o = supbooks.SheetNames[supbooks[bookidx][nameidx].itab-1] + "!";
+						}
+					}
+					else o = supbooks.SheetNames[nameidx-1]+ "!";
+					if(supbooks[bookidx] && supbooks[bookidx][nameidx]) o += supbooks[bookidx][nameidx].Name;
+					else if(supbooks[0] && supbooks[0][nameidx]) o += supbooks[0][nameidx].Name;
+					else o += "SH33TJSERRX";
+					stack.push(o);
+					break;
 				}
-				if(!externbook) externbook = {body: "??NAMEX??"};
-				stack.push(externbook.body);
+				if(!externbook) externbook = {Name: "SH33TJSERRY"};
+				stack.push(externbook.Name);
 				break;
 
-		/* 2.2.2.4 Display Tokens */
-			/* 2.5.198.80 */
-			case 'PtgParen':
+			case 'PtgParen': /* 2.5.198.80 */
 				var lp = '(', rp = ')';
 				if(last_sp >= 0) {
 					sp = "";
 					switch(formula[0][last_sp][1][0]) {
+						// $FlowIgnore
 						case 2: lp = fill(" ", formula[0][last_sp][1][1]) + lp; break;
+						// $FlowIgnore
 						case 3: lp = fill("\r", formula[0][last_sp][1][1]) + lp; break;
-						case 4: rp = fill(" ", formula[0][last_sp][1][1]) + lp; break;
-						case 5: rp = fill("\r", formula[0][last_sp][1][1]) + lp; break;
+						// $FlowIgnore
+						case 4: rp = fill(" ", formula[0][last_sp][1][1]) + rp; break;
+						// $FlowIgnore
+						case 5: rp = fill("\r", formula[0][last_sp][1][1]) + rp; break;
 						default:
-							if(opts.WTF) throw new Error("Unexpected PtgSpace type " + formula[0][last_sp][1][0]);
+							// $FlowIgnore
+							if(opts.WTF) throw new Error("Unexpected PtgAttrSpaceType " + formula[0][last_sp][1][0]);
 					}
 					last_sp = -1;
 				}
 				stack.push(lp + stack.pop() + rp); break;
 
-			/* 2.5.198.86 */
-			case 'PtgRefErr': stack.push('#REF!'); break;
+			case 'PtgRefErr': /* 2.5.198.86 */
+				stack.push('#REF!'); break;
 
-		/* */
-			/* 2.5.198.58 TODO */
-			case 'PtgExp':
-				c = {c:f[1][1],r:f[1][0]};
-				var q = {c: cell.c, r:cell.r};
+			case 'PtgRefErr3d': /* 2.5.198.87 */
+				stack.push('#REF!'); break;
+
+			case 'PtgExp': /* 2.5.198.58 TODO */
+				c = {c:(f[1][1]/*:any*/),r:(f[1][0]/*:any*/)};
+				var q = ({c: cell.c, r:cell.r}/*:any*/);
 				if(supbooks.sharedf[encode_cell(c)]) {
 					var parsedf = (supbooks.sharedf[encode_cell(c)]);
 					stack.push(stringify_formula(parsedf, _range, q, supbooks, opts));
@@ -875,68 +939,90 @@ function stringify_formula(formula, range, cell, supbooks, opts) {
 						fnd = true;
 						break;
 					}
-					if(!fnd) stack.push(f[1]);
+					if(!fnd) stack.push(/*::String(*/f[1]/*::)*/);
 				}
 				break;
 
-			/* 2.5.198.32 TODO */
-			case 'PtgArray':
+			case 'PtgArray': /* 2.5.198.32 TODO */
 				stack.push("{" + stringify_array(f[1]) + "}");
 				break;
 
-		/* 2.2.2.5 Mem Tokens */
-			/* 2.5.198.70 TODO: confirm this is a non-display */
-			case 'PtgMemArea':
+			case 'PtgMemArea': /* 2.5.198.70 TODO: confirm this is a non-display */
 				//stack.push("(" + f[2].map(encode_range).join(",") + ")");
 				break;
 
-			/* 2.5.198.38 */
-			case 'PtgAttrSpace':
-			case 'PtgAttrSpaceSemi':
+			case 'PtgAttrSpace': /* 2.5.198.38 */
+			case 'PtgAttrSpaceSemi': /* 2.5.198.39 */
 				last_sp = ff;
 				break;
 
-			/* 2.5.198.92 TODO */
-			case 'PtgTbl': break;
+			case 'PtgTbl': /* 2.5.198.92 TODO */
+				break;
 
-			/* 2.5.198.71 */
-			case 'PtgMemErr': break;
+			case 'PtgMemErr': /* 2.5.198.71 */
+				break;
 
-			/* 2.5.198.74 */
-			case 'PtgMissArg':
+			case 'PtgMissArg': /* 2.5.198.74 */
 				stack.push("");
 				break;
 
-			/* 2.5.198.29 TODO */
-			case 'PtgAreaErr': break;
+			case 'PtgAreaErr': /* 2.5.198.29 */
+				stack.push("#REF!"); break;
 
-			/* 2.5.198.31 TODO */
-			case 'PtgAreaN': stack.push(""); break;
+			case 'PtgAreaErr3d': /* 2.5.198.30 */
+				stack.push("#REF!"); break;
 
-			/* 2.5.198.87 TODO */
-			case 'PtgRefErr3d': break;
+			case 'PtgMemFunc': /* 2.5.198.72 TODO */
+				break;
+			case 'PtgMemNoMem': /* 2.5.198.73 TODO -- find a test case */
+				throw new Error('Unrecognized Formula Token: ' + String(f));
 
-			/* 2.5.198.72 TODO */
-			case 'PtgMemFunc': break;
+			case 'PtgElfCol': /* 2.5.198.46 */
+			case 'PtgElfColS': /* 2.5.198.47 */
+			case 'PtgElfColSV': /* 2.5.198.48 */
+			case 'PtgElfColV': /* 2.5.198.49 */
+			case 'PtgElfLel': /* 2.5.198.50 */
+			case 'PtgElfRadical': /* 2.5.198.51 */
+			case 'PtgElfRadicalLel': /* 2.5.198.52 */
+			case 'PtgElfRadicalS': /* 2.5.198.53 */
+			case 'PtgElfRw': /* 2.5.198.54 */
+			case 'PtgElfRwV': /* 2.5.198.55 */
+				throw new Error("Unsupported ELFs");
 
-			default: throw 'Unrecognized Formula Token: ' + f;
+			case 'PtgAttrBaxcel': /* 2.5.198.33 TODO -- find a test case*/
+				throw new Error('Unrecognized Formula Token: ' + String(f));
+			case 'PtgSxName': /* 2.5.198.91 TODO -- find a test case */
+				throw new Error('Unrecognized Formula Token: ' + String(f));
+			case 'PtgList': /* [MS-XLSB] 2.5.97.52 TODO -- find a test case */
+				throw new Error('Unrecognized Formula Token: ' + String(f));
+
+			default: throw new Error('Unrecognized Formula Token: ' + String(f));
 		}
 		var PtgNonDisp = ['PtgAttrSpace', 'PtgAttrSpaceSemi', 'PtgAttrGoto'];
 		if(last_sp >= 0 && PtgNonDisp.indexOf(formula[0][ff][0]) == -1) {
 			f = formula[0][last_sp];
+			var _left = true;
 			switch(f[1][0]) {
-				case 0: sp = fill(" ", f[1][1]); break;
-				case 1: sp = fill("\r", f[1][1]); break;
+				/* note: some bad XLSB files omit the PtgParen */
+				case 4: _left = false;
+				/* falls through */
+				case 0:
+					// $FlowIgnore
+					sp = fill(" ", f[1][1]); break;
+				case 5: _left = false;
+				/* falls through */
+				case 1:
+					// $FlowIgnore
+					sp = fill("\r", f[1][1]); break;
 				default:
 					sp = "";
-					if(opts.WTF) throw new Error("Unexpected PtgSpace type " + f[1][0]);
+					// $FlowIgnore
+					if(opts.WTF) throw new Error("Unexpected PtgAttrSpaceType " + f[1][0]);
 			}
-			stack.push(sp + stack.pop());
+			stack.push((_left ? sp : "") + stack.pop() + (_left ? "" : sp));
 			last_sp = -1;
 		}
-		//console.log("::",f, stack)
 	}
-	//console.log("--",stack);
 	if(stack.length > 1 && opts.WTF) throw new Error("bad formula stack");
 	return stack[0];
 }

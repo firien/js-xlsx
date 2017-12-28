@@ -3,23 +3,26 @@ function recordhopper(data, cb/*:RecordHopperCB*/, opts/*:?any*/) {
 	if(!data) return;
 	var tmpbyte, cntbyte, length;
 	prep_blob(data, data.l || 0);
-	while(data.l < data.length) {
-		var RT = data.read_shift(1);
+	var L = data.length, RT = 0, tgt = 0;
+	while(data.l < L) {
+		RT = data.read_shift(1);
 		if(RT & 0x80) RT = (RT & 0x7F) + ((data.read_shift(1) & 0x7F)<<7);
 		var R = XLSBRecordEnum[RT] || XLSBRecordEnum[0xFFFF];
 		tmpbyte = data.read_shift(1);
 		length = tmpbyte & 0x7F;
 		for(cntbyte = 1; cntbyte <4 && (tmpbyte & 0x80); ++cntbyte) length += ((tmpbyte = data.read_shift(1)) & 0x7F)<<(7*cntbyte);
-		var d = R.f(data, length, opts);
-		if(cb(d, R, RT)) return;
+		tgt = data.l + length;
+		var d = (R.f||parsenoop)(data, length, opts);
+		data.l = tgt;
+		if(cb(d, R.n, RT)) return;
 	}
 }
 
 /* control buffer usage for fixed-length buffers */
 function buf_array()/*:BufArray*/ {
-	var bufs = [], blksz = 2048;
+	var bufs = [], blksz = has_buf ? 256 : 2048;
 	var newblk = function ba_newblk(sz) {
-		var o = new_buf(sz);
+		var o/*:Block*/ = (new_buf(sz)/*:any*/);
 		prep_blob(o, 0);
 		return o;
 	};
@@ -50,7 +53,7 @@ function buf_array()/*:BufArray*/ {
 }
 
 function write_record(ba/*:BufArray*/, type/*:string*/, payload, length/*:?number*/) {
-	var t/*:number*/ = Number(evert_RE[type]), l;
+	var t/*:number*/ = +XLSBRE[type], l;
 	if(isNaN(t)) return; // TODO: throw something here?
 	if(!length) length = XLSBRecordEnum[t].p || (payload||[]).length || 0;
 	l = 1 + (t >= 0x80 ? 1 : 0) + 1 + length;

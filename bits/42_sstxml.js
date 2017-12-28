@@ -27,11 +27,11 @@ var parse_rs = (function parse_rs_factory() {
 	var tregex = matchtag("t"), rpregex = matchtag("rPr"), rregex = /<(?:\w+:)?r>/g, rend = /<\/(?:\w+:)?r>/, nlregex = /\r\n/g;
 	/* 18.4.7 rPr CT_RPrElt */
 	var parse_rpr = function parse_rpr(rpr, intro, outro) {
-		var font = {}, cp = 65001;
+		var font = {}, cp = 65001, align = "";
 		var m = rpr.match(tagregex), i = 0;
 		if(m) for(;i!=m.length; ++i) {
 			var y = parsexmltag(m[i]);
-			switch(y[0]) {
+			switch(y[0].replace(/\w*:/g,"")) {
 				/* 18.8.12 condense CT_BooleanProperty */
 				/* ** not required . */
 				case '<condense': break;
@@ -41,8 +41,11 @@ var parse_rs = (function parse_rs_factory() {
 				/* 18.8.36 shadow CT_BooleanProperty */
 				/* ** not required . */
 				case '<shadow':
+					if(!y.val) break;
 					/* falls through */
-				case '<shadow/>': break;
+				case '<shadow>':
+				case '<shadow/>': font.shadow = 1; break;
+				case '</shadow>': break;
 
 				/* 18.4.1 charset CT_IntProperty TODO */
 				case '<charset':
@@ -52,8 +55,11 @@ var parse_rs = (function parse_rs_factory() {
 
 				/* 18.4.2 outline CT_BooleanProperty TODO */
 				case '<outline':
+					if(!y.val) break;
 					/* falls through */
-				case '<outline/>': break;
+				case '<outline>':
+				case '<outline/>': font.outline = 1; break;
+				case '</outline>': break;
 
 				/* 18.4.5 rFont CT_FontName */
 				case '<rFont': font.name = y.val; break;
@@ -65,13 +71,20 @@ var parse_rs = (function parse_rs_factory() {
 				case '<strike':
 					if(!y.val) break;
 					/* falls through */
+				case '<strike>':
 				case '<strike/>': font.strike = 1; break;
 				case '</strike>': break;
 
 				/* 18.4.13 u CT_UnderlineProperty */
 				case '<u':
-					if(y.val == '0') break;
+					if(!y.val) break;
+					switch(y.val) {
+						case 'double': font.uval = "double"; break;
+						case 'singleAccounting': font.uval = "single-accounting"; break;
+						case 'doubleAccounting': font.uval = "double-accounting"; break;
+					}
 					/* falls through */
+				case '<u>':
 				case '<u/>': font.u = 1; break;
 				case '</u>': break;
 
@@ -79,6 +92,7 @@ var parse_rs = (function parse_rs_factory() {
 				case '<b':
 					if(y.val == '0') break;
 					/* falls through */
+				case '<b>':
 				case '<b/>': font.b = 1; break;
 				case '</b>': break;
 
@@ -86,6 +100,7 @@ var parse_rs = (function parse_rs_factory() {
 				case '<i':
 					if(y.val == '0') break;
 					/* falls through */
+				case '<i>':
 				case '<i/>': font.i = 1; break;
 				case '</i>': break;
 
@@ -98,7 +113,7 @@ var parse_rs = (function parse_rs_factory() {
 				case '<family': font.family = y.val; break;
 
 				/* 18.4.14 vertAlign CT_VerticalAlignFontProperty TODO */
-				case '<vertAlign': break;
+				case '<vertAlign': align = y.val; break;
 
 				/* 18.8.35 scheme CT_FontScheme TODO */
 				case '<scheme': break;
@@ -107,11 +122,23 @@ var parse_rs = (function parse_rs_factory() {
 					if(y[0].charCodeAt(1) !== 47) throw 'Unrecognized rich format ' + y[0];
 			}
 		}
-		/* TODO: These should be generated styles, not inline */
 		var style = [];
-		if(font.b) style.push("font-weight: bold;");
-		if(font.i) style.push("font-style: italic;");
+
+		if(font.u) style.push("text-decoration: underline;");
+		if(font.uval) style.push("text-underline-style:" + font.uval + ";");
+		if(font.sz) style.push("font-size:" + font.sz + ";");
+		if(font.outline) style.push("text-effect: outline;");
+		if(font.shadow) style.push("text-shadow: auto;");
 		intro.push('<span style="' + style.join("") + '">');
+
+		if(font.b) { intro.push("<b>"); outro.push("</b>"); }
+		if(font.i) { intro.push("<i>"); outro.push("</i>"); }
+		if(font.strike) { intro.push("<s>"); outro.push("</s>"); }
+
+		if(align == "superscript") align = "sup";
+		else if(align == "subscript") align = "sub";
+		if(align != "") { intro.push("<" + align + ">"); outro.push("</" + align + ">"); }
+
 		outro.push("</span>");
 		return cp;
 	};
@@ -136,6 +163,7 @@ var parse_rs = (function parse_rs_factory() {
 
 /* 18.4.8 si CT_Rst */
 var sitregex = /<(?:\w+:)?t[^>]*>([^<]*)<\/(?:\w+:)?t>/g, sirregex = /<(?:\w+:)?r>/;
+var sirphregex = /<(?:\w+:)?rPh.*?>([\s\S]*?)<\/(?:\w+:)?rPh>/g;
 function parse_si(x, opts) {
 	var html = opts ? opts.cellHTML : true;
 	var z = {};
@@ -144,14 +172,14 @@ function parse_si(x, opts) {
 	/* 18.4.12 t ST_Xstring (Plaintext String) */
 	// TODO: is whitespace actually valid here?
 	if(x.match(/^\s*<(?:\w+:)?t[^>]*>/)) {
-		z.t = utf8read(unescapexml(x.substr(x.indexOf(">")+1).split(/<\/(?:\w+:)?t>/)[0]));
+		z.t = unescapexml(utf8read(x.slice(x.indexOf(">")+1).split(/<\/(?:\w+:)?t>/)[0]||""));
 		z.r = utf8read(x);
-		if(html) z.h = z.t;
+		if(html) z.h = escapehtml(z.t);
 	}
 	/* 18.4.4 r CT_RElt (Rich Text Run) */
 	else if((y = x.match(sirregex))) {
 		z.r = utf8read(x);
-		z.t = utf8read(unescapexml((x.match(sitregex)||[]).join("").replace(tagregex,"")));
+		z.t = unescapexml(utf8read((x.replace(sirphregex, '').match(sitregex)||[]).join("").replace(tagregex,"")));
 		if(html) z.h = parse_rs(z.r);
 	}
 	/* 18.4.3 phoneticPr CT_PhoneticPr (TODO: needed for Asian support) */
@@ -190,11 +218,12 @@ function write_sst_xml(sst/*:SST*/, opts)/*:string*/ {
 		uniqueCount: sst.Unique
 	}));
 	for(var i = 0; i != sst.length; ++i) { if(sst[i] == null) continue;
-		var s = sst[i];
+		var s/*:XLString*/ = sst[i];
 		var sitag = "<si>";
 		if(s.r) sitag += s.r;
 		else {
 			sitag += "<t";
+			if(!s.t) s.t = "";
 			if(s.t.match(straywsregex)) sitag += ' xml:space="preserve"';
 			sitag += ">" + escapexml(s.t) + "</t>";
 		}

@@ -1,57 +1,48 @@
 RELS.THEME = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme";
 
 /* 20.1.6.2 clrScheme CT_ColorScheme */
-function parse_clrScheme(t, opts) {
+function parse_clrScheme(t, themes, opts) {
 	themes.themeElements.clrScheme = [];
 	var color = {};
 	(t[0].match(tagregex)||[]).forEach(function(x) {
 		var y = parsexmltag(x);
 		switch(y[0]) {
+			/* 20.1.6.2 clrScheme (Color Scheme) CT_ColorScheme */
 			case '<a:clrScheme': case '</a:clrScheme>': break;
 
 			/* 20.1.2.3.32 srgbClr CT_SRgbColor */
-			case '<a:srgbClr': color.rgb = y.val; break;
+			case '<a:srgbClr':
+				color.rgb = y.val; break;
 
 			/* 20.1.2.3.33 sysClr CT_SystemColor */
-			case '<a:sysClr': color.rgb = y.lastClr; break;
+			case '<a:sysClr':
+				color.rgb = y.lastClr; break;
 
-			/* 20.1.4.1.9 dk1 (Dark 1) */
-			case '<a:dk1>':
-			case '</a:dk1>':
-			/* 20.1.4.1.10 dk2 (Dark 2) */
-			case '<a:dk2>':
-			case '</a:dk2>':
-			/* 20.1.4.1.22 lt1 (Light 1) */
-			case '<a:lt1>':
-			case '</a:lt1>':
-			/* 20.1.4.1.23 lt2 (Light 2) */
-			case '<a:lt2>':
-			case '</a:lt2>':
 			/* 20.1.4.1.1 accent1 (Accent 1) */
-			case '<a:accent1>':
-			case '</a:accent1>':
 			/* 20.1.4.1.2 accent2 (Accent 2) */
-			case '<a:accent2>':
-			case '</a:accent2>':
 			/* 20.1.4.1.3 accent3 (Accent 3) */
-			case '<a:accent3>':
-			case '</a:accent3>':
 			/* 20.1.4.1.4 accent4 (Accent 4) */
-			case '<a:accent4>':
-			case '</a:accent4>':
 			/* 20.1.4.1.5 accent5 (Accent 5) */
-			case '<a:accent5>':
-			case '</a:accent5>':
 			/* 20.1.4.1.6 accent6 (Accent 6) */
-			case '<a:accent6>':
-			case '</a:accent6>':
-			/* 20.1.4.1.19 hlink (Hyperlink) */
-			case '<a:hlink>':
-			case '</a:hlink>':
+			/* 20.1.4.1.9 dk1 (Dark 1) */
+			/* 20.1.4.1.10 dk2 (Dark 2) */
 			/* 20.1.4.1.15 folHlink (Followed Hyperlink) */
-			case '<a:folHlink>':
-			case '</a:folHlink>':
-				if (y[0][1] === '/') {
+			/* 20.1.4.1.19 hlink (Hyperlink) */
+			/* 20.1.4.1.22 lt1 (Light 1) */
+			/* 20.1.4.1.23 lt2 (Light 2) */
+			case '<a:dk1>': case '</a:dk1>':
+			case '<a:lt1>': case '</a:lt1>':
+			case '<a:dk2>': case '</a:dk2>':
+			case '<a:lt2>': case '</a:lt2>':
+			case '<a:accent1>': case '</a:accent1>':
+			case '<a:accent2>': case '</a:accent2>':
+			case '<a:accent3>': case '</a:accent3>':
+			case '<a:accent4>': case '</a:accent4>':
+			case '<a:accent5>': case '</a:accent5>':
+			case '<a:accent6>': case '</a:accent6>':
+			case '<a:hlink>': case '</a:hlink>':
+			case '<a:folHlink>': case '</a:folHlink>':
+				if (y[0].charAt(1) === '/') {
 					themes.themeElements.clrScheme.push(color);
 					color = {};
 				} else {
@@ -59,23 +50,23 @@ function parse_clrScheme(t, opts) {
 				}
 				break;
 
-			default: if(opts.WTF) throw 'unrecognized ' + y[0] + ' in clrScheme';
+			default: if(opts && opts.WTF) throw new Error('Unrecognized ' + y[0] + ' in clrScheme');
 		}
 	});
 }
 
 /* 20.1.4.1.18 fontScheme CT_FontScheme */
-function parse_fontScheme(t, opts) { }
+function parse_fontScheme(t, themes, opts) { }
 
 /* 20.1.4.1.15 fmtScheme CT_StyleMatrix */
-function parse_fmtScheme(t, opts) { }
+function parse_fmtScheme(t, themes, opts) { }
 
-var clrsregex = /<a:clrScheme([^>]*)>[^\u2603]*<\/a:clrScheme>/;
-var fntsregex = /<a:fontScheme([^>]*)>[^\u2603]*<\/a:fontScheme>/;
-var fmtsregex = /<a:fmtScheme([^>]*)>[^\u2603]*<\/a:fmtScheme>/;
+var clrsregex = /<a:clrScheme([^>]*)>[\s\S]*<\/a:clrScheme>/;
+var fntsregex = /<a:fontScheme([^>]*)>[\s\S]*<\/a:fontScheme>/;
+var fmtsregex = /<a:fmtScheme([^>]*)>[\s\S]*<\/a:fmtScheme>/;
 
 /* 20.1.6.10 themeElements CT_BaseStyles */
-function parse_themeElements(data, opts) {
+function parse_themeElements(data, themes, opts) {
 	themes.themeElements = {};
 
 	var t;
@@ -89,27 +80,29 @@ function parse_themeElements(data, opts) {
 		['fmtScheme', fmtsregex, parse_fmtScheme]
 	].forEach(function(m) {
 		if(!(t=data.match(m[1]))) throw new Error(m[0] + ' not found in themeElements');
-		m[2](t, opts);
+		m[2](t, themes, opts);
 	});
 }
 
-var themeltregex = /<a:themeElements([^>]*)>[^\u2603]*<\/a:themeElements>/;
+var themeltregex = /<a:themeElements([^>]*)>[\s\S]*<\/a:themeElements>/;
 
 /* 14.2.7 Theme Part */
-function parse_theme_xml(data, opts) {
+function parse_theme_xml(data/*:string*/, opts) {
 	/* 20.1.6.9 theme CT_OfficeStyleSheet */
-	if(!data || data.length === 0) return themes;
+	if(!data || data.length === 0) return parse_theme_xml(write_theme());
 
 	var t;
+	var themes = {};
 
 	/* themeElements CT_BaseStyles */
-	if(!(t=data.match(themeltregex))) throw 'themeElements not found in theme';
-	parse_themeElements(t[0], opts);
+	if(!(t=data.match(themeltregex))) throw new Error('themeElements not found in theme');
+	parse_themeElements(t[0], themes, opts);
 
 	return themes;
 }
 
-function write_theme() {
+function write_theme(Themes, opts)/*:string*/ {
+	if(opts && opts.themeXLSX) return opts.themeXLSX;
 	var o = [XML_HEADER];
 	o[o.length] = '<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Office Theme">';
 	o[o.length] =  '<a:themeElements>';
@@ -264,15 +257,15 @@ function write_theme() {
 	o[o.length] =     '</a:gradFill>';
 	o[o.length] =    '</a:bgFillStyleLst>';
 	o[o.length] =   '</a:fmtScheme>';
-
 	o[o.length] =  '</a:themeElements>';
+
 	o[o.length] =  '<a:objectDefaults>';
 	o[o.length] =   '<a:spDef>';
 	o[o.length] =    '<a:spPr/><a:bodyPr/><a:lstStyle/><a:style><a:lnRef idx="1"><a:schemeClr val="accent1"/></a:lnRef><a:fillRef idx="3"><a:schemeClr val="accent1"/></a:fillRef><a:effectRef idx="2"><a:schemeClr val="accent1"/></a:effectRef><a:fontRef idx="minor"><a:schemeClr val="lt1"/></a:fontRef></a:style>';
 	o[o.length] =   '</a:spDef>';
 	o[o.length] =   '<a:lnDef>';
 	o[o.length] =    '<a:spPr/><a:bodyPr/><a:lstStyle/><a:style><a:lnRef idx="2"><a:schemeClr val="accent1"/></a:lnRef><a:fillRef idx="0"><a:schemeClr val="accent1"/></a:fillRef><a:effectRef idx="1"><a:schemeClr val="accent1"/></a:effectRef><a:fontRef idx="minor"><a:schemeClr val="tx1"/></a:fontRef></a:style>';
-	o[o.length] =     '</a:lnDef>';
+	o[o.length] =   '</a:lnDef>';
 	o[o.length] =  '</a:objectDefaults>';
 	o[o.length] =  '<a:extraClrSchemeLst/>';
 	o[o.length] = '</a:theme>';

@@ -22,6 +22,7 @@ function getdatabin(data) {
 function getdata(data) { return (data && data.name.slice(-4) === ".bin") ? getdatabin(data) : getdatastr(data); }
 
 /* Part 2 Section 10.1.2 "Mapping Content Types" Names are case-insensitive */
+/* OASIS does not comment on filename case sensitivity */
 function safegetzipfile(zip, file/*:string*/) {
 	var k = keys(zip.files);
 	var f = file.toLowerCase(), g = f.replace(/\//g,'\\');
@@ -38,7 +39,7 @@ function getzipfile(zip, file/*:string*/) {
 	return o;
 }
 
-function getzipdata(zip, file/*:string*/, safe/*:?boolean*/) {
+function getzipdata(zip, file/*:string*/, safe/*:?boolean*/)/*:any*/ {
 	if(!safe) return getdata(getzipfile(zip, file));
 	if(!file) return null;
 	try { return getzipdata(zip, file); } catch(e) { return null; }
@@ -52,10 +53,23 @@ function getzipstr(zip, file/*:string*/, safe/*:?boolean*/)/*:?string*/ {
 
 var _fs, jszip;
 /*:: declare var JSZip:any; */
+/*global JSZip:true */
 if(typeof JSZip !== 'undefined') jszip = JSZip;
 if (typeof exports !== 'undefined') {
 	if (typeof module !== 'undefined' && module.exports) {
-		if(typeof jszip === 'undefined') jszip = require('./js'+'zip');
-		_fs = require('f'+'s');
+		if(typeof jszip === 'undefined') jszip = require('./jszip.js');
+		try { _fs = require('fs'); } catch(e) { }
 	}
+}
+
+function resolve_path(path/*:string*/, base/*:string*/)/*:string*/ {
+	var result = base.split('/');
+	if(base.slice(-1) != "/") result.pop(); // folder path
+	var target = path.split('/');
+	while (target.length !== 0) {
+		var step = target.shift();
+		if (step === '..') result.pop();
+		else if (step !== '.') result.push(step);
+	}
+	return result.join('/');
 }
